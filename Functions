@@ -1,0 +1,105 @@
+##Load necessary working packages and graphics packages
+library("ggplot2")
+library("gridExtra")
+library("reshape2")
+library("plyr")
+library("data.table")
+
+
+
+
+
+##Set working directory to path containing data files of interest and import into a list of data frames;ignores first 10 lines and sets 11th line as header
+uploadFiles<-function(path){
+        setwd(path)
+        data<-lapply(dir(),read.table,skip=10,header=TRUE) ##read data from each file in the path into a list
+        lapply(data,melt,id.var='Time..s.') ##melt data tables into long format that is easier to manipulate
+}
+
+
+
+
+
+##Plot current traces aligned with voltage step protocol
+tracePlot<-function(list_item){
+        ##subset of data containing only current and time info by looking for pA and Time patterns in variable name
+        current<-subset(list_item,grepl('pA',list_item$variable)|grepl('Time',list_item$variable)) 
+        ##create a plot of current vs time
+        currentPlot<-ggplot(current, aes(Time..s.,value, group = variable)) + 
+                geom_line() +
+                xlim(c(0.2,0.4)) +
+                xlab("") +
+                ylim(c(-500,10000)) +
+                ylab("Current (pA)") +
+                theme(legend.title=element_blank()) +
+                theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                        panel.background = element_blank(), axis.line = element_line(colour = "black"), 
+                        axis.text=element_text(size=14), axis.title=element_text(size=16, face='bold'))
+        ##subset of data containing only voltage and time info by looking for mV and Time patterns in variable name
+        voltage<-subset(list_item,grepl('mV',list_item$variable)|grepl('Time',list_item$variable))
+        ##create a plot of voltage vs time
+        voltagePlot<-ggplot(voltage, aes(Time..s.,value, group = variable)) +
+                geom_line() +
+                xlim(c(0.2,0.4)) +
+                xlab("Time (s)") +
+                ylab("Voltage (mV)") +
+                theme(legend.title=element_blank()) +
+                theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                         panel.background = element_blank(), axis.line = element_line(colour = "black"), 
+                         axis.text=element_text(size=14), axis.title=element_text(size=16, face='bold'))
+                
+        grid.arrange(currentPlot,voltagePlot, ncol=1)
+}
+
+
+
+
+
+##Apply traceplot function to each file that was uploaded
+fileTraces<-function(files){
+        lapply(files,tracePlot)
+}
+
+
+
+
+
+
+##Generate current vs voltage mean data for each voltage step at steady state (times may need to be adjusted to ensure steady state for values)
+IVdata<-function(file){
+        ##Filter only the values for current and voltage between T=0.3 sec and T=0.35 sec (steady state), group melted table by the variable name, and take the mean and sd of each
+        steady.state.data<-file %>% filter(Time..s.>0.3 & Time..s.<0.35) %>% group_by(variable) %>% summarise(mean=mean(value), sd=sd(value))
+        ##Create vectors for current, voltage, and the sd of current
+        current<-steady.state.data$mean[c(seq(1,length(steady.state.data$mean),2))]
+        voltage<-steady.state.data$mean[c(seq(2,length(steady.state.data$mean),2))]
+        current.sd<-steady.state.data$sd[c(seq(1,length(steady.state.data$sd),2))]
+        ##bind vectors to create a table that summarizes current-voltage relationship
+        IV.data<-cbind(current,voltage,current.sd)
+}
+
+
+
+
+
+IVPlot<-function(file){
+        g<-ggplot(as.data.frame(file), aes(voltage,current)) + 
+                geom_point(colour="blue",size = 5,shape=1) +
+                geom_errorbar(aes(ymin=current-current.sd, ymax=current+current.sd),colour="blue", width=3) +
+                geom_hline(aes(yintercept=0, colour="red"), linetype= "dashed", size=1) +
+                xlab("Voltage (mV)") +
+                ylab("Current (pA)") +
+                ylim(c(-500,10000)) +
+                theme(legend.title=element_blank()) +
+                theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                        panel.background = element_blank(), axis.line = element_line(colour = "black"), 
+                        axis.text=element_text(size=14), axis.title=element_text(size=16, face='bold'))
+        print(g)  
+}
+
+
+
+
+generateIVs<-function(file.list){
+        QuickIV<-lapply(file.list,IVdata)
+        l_ply(QuickIV,IVPlot)
+}
